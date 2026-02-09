@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>ESP32-S3 DAQ System</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body { font-family: Arial; text-align: center; background: #f4f4f4; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 20px; padding: 20px; }
+        .card { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
+        .value { font-size: 24px; color: #007bff; font-weight: bold; }
+        .unit { font-size: 14px; color: #666; }
+        h1 { color: #333; }
+    </style>
+</head>
+<body>
+    <h1>DAQ Control Panel</h1>
+    <div class="grid" id="sensor-grid">
+        </div>
+
+    <script>
+        // Fonction pour récupérer les données toutes les secondes
+        setInterval(function() {
+            fetch('/data').then(response => response.json()).then(data => {
+                let html = '';
+                data.analog.forEach((val, i) => {
+                    html += `<div class="card">
+                        <h3>Input ${i+1}</h3>
+                        <div class="value">${val.toFixed(2)}</div>
+                        <div class="unit">Volts</div>
+                    </div>`;
+                });
+                document.getElementById('sensor-grid').innerHTML = html;
+            });
+        }, 1000);
+    </script>
+</body>
+</html>

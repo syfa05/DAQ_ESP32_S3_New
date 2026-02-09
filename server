@@ -1,0 +1,71 @@
+#include <Arduino.h>
+#include <WiFi.h>
+#include <ESPAsyncWebServer.h>
+#include <ArduinoJson.h> // Pour envoyer les données proprement
+#include "pins.h"
+
+AsyncWebServer server(80);
+
+// Données de connexion Wi-Fi (à adapter)
+const char* ssid = "VOTRE_WIFI";
+const char* password = "VOTRE_MOT_DE_PASSE";
+
+void startWebServer() {
+    // Route pour servir la page HTML (le Dashboard)
+    server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
+        request->send(200, "text/html", "CONTENU_HTML_ICI"); 
+    });
+
+    // Route API qui envoie les 10 tensions en format JSON
+    server.on("/data", HTTP_GET, [](AsyncWebServerRequest *request){
+        StaticJsonDocument<512> doc;
+        JsonArray data = doc.createNestedArray("analog");
+        
+        for(int i=0; i < NUM_ANALOG_INPUTS; i++) {
+            data.add(readAnalogVoltage(i)); // Appelle la fonction de lecture créée précédemment
+        }
+        
+        String response;
+        serializeJson(doc, response);
+        request->send(200, "application/json", response);
+    });
+
+    // Route pour piloter les relais
+    server.on("/relay", HTTP_GET, [](AsyncWebServerRequest *request){
+        if (request->hasParam("id") && request->hasParam("state")) {
+            int id = request->getParam("id")->value().toInt();
+            int state = request->getParam("state")->value().toInt();
+            
+            if(id >= 0 && id < NUM_RELAYS) {
+                digitalWrite(RELAY_PINS[id], state); // Pilote l'ULN2803
+            }
+        }
+        request->send(200, "text/plain", "OK");
+    });
+
+    server.begin();
+}
+
+void setup() {
+    Serial.begin(115200);
+    
+    // Configurer les pins des relais en SORTIE
+    for(int i=0; i < NUM_RELAYS; i++) {
+        pinMode(RELAY_PINS[i], OUTPUT);
+        digitalWrite(RELAY_PINS[i], LOW);
+    }
+
+    // Connexion Wi-Fi
+    WiFi.begin(ssid, password);
+    while (WiFi.status() != WL_CONNECTED) { delay(500); Serial.print("."); }
+    
+    Serial.println("\nConnecté ! Adresse IP : ");
+    Serial.println(WiFi.localIP());
+
+    setupAnalog(); // Initialisation de l'ADC
+    startWebServer();
+}
+
+void loop() {
+    // Rien ici, le serveur asynchrone tourne en tâche de fond !
+}
