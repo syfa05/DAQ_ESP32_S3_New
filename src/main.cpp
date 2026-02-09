@@ -1,63 +1,66 @@
 #include <Arduino.h>
+#include <WiFi.h>
+#include <ESPAsyncWebServer.h>
+#include <ArduinoJson.h>
+#include "pins.h" // Assurez-vous que ce fichier existe dans le dossier 'include'
 
-#include <Arduino.h>
-#include "pins.h"
+// --- CONFIGURATION ---
+const char* ssid = "VOTRE_SSID";
+const char* password = "VOTRE_MOT_DE_PASSE";
 
-// Configuration des résistances du pont diviseur (à ajuster selon votre BOM)
-// Exemple : R_haut = 68k, R_bas = 33k (Ratio ~3.06)
+AsyncWebServer server(80);
+
+// --- LOGIQUE ANALOGIQUE ---
 const float R_HIGH = 68000.0; 
 const float R_LOW = 33000.0;
 const float VOLTAGE_DIVIDER_RATIO = (R_HIGH + R_LOW) / R_LOW;
-
-// Référence de tension de l'ESP32-S3 (généralement 3.1V à 3.3V)
 const float ADC_VREF = 3.3; 
 
-/**
- * Lit une tension réelle sur une entrée spécifique
- * @param channel Index de l'entrée (0 à 9)
- * @return Tension réelle en Volts
- */
-float readAnalogVoltage(int channel) {
-    if (channel < 0 || channel >= NUM_ANALOG_INPUTS) return 0.0;
-
+float getVoltage(int ch) {
     long sum = 0;
-    const int SAMPLES = 64; // On prend 64 mesures pour lisser le bruit
-
-    for (int i = 0; i < SAMPLES; i++) {
-        sum += analogRead(ANALOG_PINS[channel]);
-        delayMicroseconds(10);
-    }
-
-    float avgRaw = (float)sum / SAMPLES;
-    
-    // Conversion Raw -> Tension aux bornes de l'ESP32 (0-3.3V)
-    float vPin = (avgRaw * ADC_VREF) / 4095.0;
-
-    // Conversion Tension Pin -> Tension Réelle (0-24V+)
-    return vPin * VOLTAGE_DIVIDER_RATIO;
+    for(int i=0; i<64; i++) sum += analogRead(ANALOG_PINS[ch]);
+    float avgRaw = (float)sum / 64.0;
+    return (avgRaw * ADC_VREF / 4095.0) * VOLTAGE_DIVIDER_RATIO;
 }
 
-void setupAnalog() {
-    // Configuration de la résolution ADC à 12 bits (0-4095)
-    analogReadResolution(12);
-    
-    // Optionnel : ajuster l'atténuation pour lire jusqu'à 3.1V max sur la pin
-    for(int i=0; i < NUM_ANALOG_INPUTS; i++) {
-        pinMode(ANALOG_PINS[i], INPUT);
-    }
-}
-
-/** 
+// --- INITIALISATION (C'est ce qui manquait !) ---
 void setup() {
-  Serial.begin(115200);
-  delay(1000);
-  Serial.println("\n\nDAQ_ESP32_S3 - nouveau projet");
-  Serial.println("Carte: ESP32-S3-DevKitC-1");
-  Serial.println("Framework: Arduino");
+    Serial.begin(115200);
+    
+    // Configurer les Relais en sortie
+    for(int i=0; i<NUM_RELAYS; i++) {
+        pinMode(RELAY_PINS[i], OUTPUT);
+        digitalWrite(RELAY_PINS[i], LOW);
+    }
+
+    // Configurer l'ADC
+    analogReadResolution(12);
+
+    // Connexion Wi-Fi
+    WiFi.begin(ssid, password);
+    while (WiFi.status() != WL_CONNECTED) {
+        delay(500);
+        Serial.print(".");
+    }
+    Serial.println("\nConnecté ! IP : " + WiFi.localIP().toString());
+
+    // Route API pour les données JSON
+    server.on("/data", HTTP_GET, [](AsyncWebServerRequest *request){
+        StaticJsonDocument<512> doc;
+        JsonArray data = doc.createNestedArray("analog");
+        for(int i=0; i < NUM_ANALOG_INPUTS; i++) {
+            data.add(getVoltage(i));
+        }
+        String response;
+        serializeJson(doc, response);
+        request->send(200, "application/json", response);
+    });
+
+    server.begin();
 }
 
+// --- BOUCLE PRINCIPALE ---
 void loop() {
-  Serial.println("DAQ_ESP32_S3 en fonctionnement...");
-  delay(1000);
+    // Le serveur asynchrone gère tout en arrière-plan
+    delay(1000); 
 }
-*/
