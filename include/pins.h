@@ -4,6 +4,7 @@
 
 #ifndef PINS_H
 #define PINS_H
+#define EEPROM_ADDR 0x50 // Adresse I2C pour l'AT24C32
 
 // --- SORTIES RELAIS (Via ULN2803) ---
 const int RELAY_PINS[] = {11, 12, 13, 14, 15, 16, 17, 18};

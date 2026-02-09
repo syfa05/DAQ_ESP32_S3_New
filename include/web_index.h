@@ -2,66 +2,58 @@
 #define WEB_INDEX_H
 
 const char index_html[] PROGMEM = R"rawliteral(
-<!DOCTYPE html>
-<html>
-<head>
-    <title>ESP32-S3 DAQ Pro</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <style>
-        body { font-family: 'Segoe UI', sans-serif; background: #1a1a1a; color: white; text-align: center; }
-        .container { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; padding: 20px; }
-        .card { background: #2d2d2d; border-radius: 12px; padding: 15px; border-bottom: 4px solid #007bff; }
-        .voltage { font-size: 28px; font-weight: bold; color: #00ffcc; margin: 10px 0; }
-        .relay-btn { padding: 10px 20px; border-radius: 20px; border: none; cursor: pointer; font-weight: bold; width: 100%; transition: 0.3s; }
-        .on { background: #28a745; color: white; }
-        .off { background: #dc3545; color: white; }
-        h1 { color: #007bff; }
-    </style>
+<!DOCTYPE html><html><head>
+<title>DAQ ESP32-S3 PRO</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+    body { font-family: 'Segoe UI', sans-serif; background: #121212; color: #e0e0e0; text-align: center; margin:0; }
+    .header { background: #1f1f1f; padding: 20px; border-bottom: 2px solid #007bff; }
+    .container { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; padding: 20px; }
+    .card { background: #1e1e1e; border-radius: 12px; padding: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); border: 1px solid #333; }
+    .voltage { font-size: 32px; font-weight: bold; margin: 10px 0; }
+    .btn { padding: 12px; border-radius: 8px; border: none; cursor: pointer; width: 100%; font-weight: bold; transition: 0.3s; }
+    .on { background: #2e7d32; color: white; } .off { background: #c62828; color: white; }
+    .edit-icon { cursor: pointer; font-size: 14px; margin-left: 8px; color: #007bff; }
+</style>
 </head>
 <body>
-    <h1>🎛️ DAQ System - 24V Monitoring</h1>
-    <div class="container" id="analog-container"></div>
-    <hr>
-    <div class="container" id="relay-container"></div>
+    <div class="header"><h1>🎛️ Centrale DAQ 24V</h1></div>
+    <h2>Entrées Analogiques</h2>
+    <div class="container" id="analog-grid"></div>
+    <hr style="border:1px solid #333">
+    <h2>Contrôle Relais</h2>
+    <div class="container" id="relay-grid"></div>
 
-    <script>
-        // Rafraîchissement des données analogiques (Toutes les 500ms pour plus de fluidité)
-        setInterval(() => {
-            fetch('/data').then(r => r.json()).then(d => {
-                let html = '';
-                d.analog.forEach((v, i) => {
-                    let color = v > 24 ? "#ff4444" : (v > 12 ? "#00ffcc" : "#ffbb33");
-                    html += `<div class="card">
-                        <small>Entrée ${i+1}</small>
-                        <div class="voltage" style="color:${color}">${v.toFixed(2)}V</div>
-                    </div>`;
-                });
-                document.getElementById('analog-container').innerHTML = html;
+<script>
+    function updateData() {
+        fetch('/data').then(r => r.json()).then(d => {
+            let aH = '';
+            d.analog.forEach((v, i) => {
+                let color = v > d.thresholds[i] && d.thresholds[i] > 0 ? "#ff5252" : "#00e5ff";
+                aH += `<div class="card">
+                    <div style="font-size:12px">${d.names[i]} <span class="edit-icon" onclick="rename(${i})">✏️</span></div>
+                    <div class="voltage" style="color:${color}">${v.toFixed(2)}V</div>
+                    <div style="font-size:11px; color:#888">Seuil: ${d.thresholds[i]}V <span class="edit-icon" onclick="setLimit(${i})">⚙️</span></div>
+                </div>`;
             });
-        }, 500);
+            document.getElementById('analog-grid').innerHTML = aH;
 
-        // Génération des boutons de relais (Une seule fois au chargement)
-        let relayHtml = '';
-        for(let i=0; i<8; i++) {
-            relayHtml += `<div class="card">
-                <small>Relais ${i+1}</small><br><br>
-                <button id="btn-${i}" class="relay-btn off" onclick="toggleRelay(${i})">OFF</button>
-            </div>`;
-        }
-        document.getElementById('relay-container').innerHTML = relayHtml;
-
-        function toggleRelay(id) {
-            let btn = document.getElementById('btn-' + id);
-            let newState = btn.classList.contains('off') ? 1 : 0;
-            fetch(`/relay?id=${id}&state=${newState}`).then(() => {
-                btn.classList.toggle('on');
-                btn.classList.toggle('off');
-                btn.innerText = newState ? 'ON' : 'OFF';
+            let rH = '';
+            d.relays.forEach((s, i) => {
+                rH += `<div class="card"><small>Relais ${i+1}</small><br><br>
+                <button class="btn ${s?'on':'off'}" onclick="tglR(${i},${s?0:1})">${s?'ACTIVE':'ETEINT'}</button></div>`;
             });
-        }
-    </script>
-</body>
-</html>
+            document.getElementById('relay-grid').innerHTML = rH;
+        });
+    }
+
+    function rename(id) { let n = prompt("Nom ?"); if(n) fetch(`/rename?id=${id}&name=${n}`).then(()=>updateData()); }
+    function setLimit(id) { let l = prompt("Seuil alerte (V) ?"); if(l) fetch(`/limit?id=${id}&val=${l}`).then(()=>updateData()); }
+    function tglR(id,s) { fetch(`/relay?id=${id}&state=${s}`).then(()=>updateData()); }
+    
+    setInterval(updateData, 1000);
+    updateData();
+</script>
+</body></html>
 )rawliteral";
-
 #endif
