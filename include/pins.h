@@ -23,4 +23,10 @@ const int ANALOG_PINS[] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
 #define BUZZER_PIN 46 // Selon schéma Q1/LS1
 #define STATUS_LED 38 // LED D3/D4 selon routage
 
+// --- CARTE SD (SPI) ---
+#define SD_CS   45
+#define SD_MISO 37
+#define SD_CLK  36
+#define SD_MOSI 35
+
 #endif
