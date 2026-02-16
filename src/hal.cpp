@@ -1,4 +1,6 @@
 #include <Arduino.h>
+#include "hal.h"
+#include "daq.h"
 
 // --- MAPPING DES SORTIES (%QX0.0 à %QX0.7) ---
 // GPIO 11 à 18
@@ -31,22 +33,39 @@ void initHAL() {
 }
 
 void updateHAL() {
-    // 1. Lire les entrées physiques et les mettre dans les variables OpenPLC
+    // 1. Lire les entrées physiques et les mettre dans les variables DAQ
     for (int i = 0; i < 5; i++) {
         bool val = digitalRead(pin_inputs[i]);
-        // OpenPLC utilise un tableau interne bool_input[]
-        set_bool_input(i, val); 
+        daq.inputs[i] = val; 
     }
 
-    // 2. Lire les entrées analogiques (ADC 12 bits -> 0-4095)
+    // 2. Lire les entrées analogiques (ADC 12 bits -> 0-4095 -> normaliser)
     for (int i = 0; i < 10; i++) {
         uint16_t val = analogRead(pin_analog[i]);
-        set_int_input(i, val);
+        daq.analog[i] = (float)val / 4095.0 * 3.3;  // Convert to voltage
     }
 
-    // 3. Écrire les sorties physiques depuis les variables OpenPLC
+    // 3. Écrire les sorties physiques depuis les variables DAQ
     for (int i = 0; i < 8; i++) {
-        bool val = get_bool_output(i);
-        digitalWrite(pin_outputs[i], val);
+        bool val = daq.relays[i];
+        digitalWrite(pin_outputs[i], val ? HIGH : LOW);
+    }
+}
+
+// Fonctions utilitaires
+float readAnalogChannel(int ch) {
+    if (ch >= 0 && ch < 10) return daq.analog[ch];
+    return 0.0;
+}
+
+bool readDigitalInput(int ch) {
+    if (ch >= 0 && ch < 5) return daq.inputs[ch];
+    return false;
+}
+
+void writeRelay(int ch, bool state) {
+    if (ch >= 0 && ch < 8) {
+        daq.relays[ch] = state;
+        digitalWrite(pin_outputs[ch], state ? HIGH : LOW);
     }
 }
