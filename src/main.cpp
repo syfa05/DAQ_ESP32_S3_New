@@ -13,13 +13,6 @@ struct SystemState {
     String currentScript;
 } state;
 
-struct Settings {
-    char inputNames[10][32];
-    bool relayStates[8];
-} settings;
-
-String virtualScript = "";
-
 AsyncWebServer server(80);
 
 // --- SIMULATION DES DONNÉES ---
@@ -29,16 +22,8 @@ void updateSimulatedData() {
     }
 }
 
-// Helper function to get voltage value
-float getV(int index) {
-    if(index >= 0 && index < 10) return state.voltages[index];
-    return 0.0;
-}
-
 // --- MOTEUR DE PROGRAMMATION C++ (TinyExpr) ---
-void runRAMScript() {
-    if (virtualScript.length() == 0) return;
-    
+void runRuntimeEngine() {
     double v[10]; 
     for(int i=0; i<10; i++) v[i] = state.voltages[i];
 
@@ -49,9 +34,9 @@ void runRAMScript() {
 
     // Parsing du script ligne par ligne
     int start = 0;
-    int end = virtualScript.indexOf('\n');
-    while (start < virtualScript.length()) {
-        String line = (end == -1) ? virtualScript.substring(start) : virtualScript.substring(start, end);
+    int end = state.currentScript.indexOf('\n');
+    while (start < state.currentScript.length()) {
+        String line = (end == -1) ? state.currentScript.substring(start) : state.currentScript.substring(start, end);
         line.trim();
 
         if(line.indexOf('=') != -1 && !line.startsWith("#")){
@@ -70,77 +55,54 @@ void runRAMScript() {
         }
         if (end == -1) break;
         start = end + 1;
-        end = virtualScript.indexOf('\n', start);
+        end = state.currentScript.indexOf('\n', start);
     }
 }
 
 void setup() {
     Serial.begin(115200);
-    delay(1000);
+    state.currentScript = "R1 = AN1 > 15.0\nR2 = AN2 < 11.0"; // Script par défaut
+    
+    WiFi.softAP("DAQ-PRO-S3", "12345678");
 
-    // Initialisation des noms fictifs pour le test
-    for(int i=0; i<10; i++) sprintf(settings.inputNames[i], "Simu-Ch %d", i+1);
-    for(int i=0; i<8; i++) settings.relayStates[i] = false;
-
-    // WiFi en mode Point d'Accès
-    WiFi.softAP("DAQ-S3-SIMU", "12345678");
-    Serial.println("\n==================================");
-    Serial.println("   DAQ S3 - MODE SIMULATION OK   ");
-    Serial.print("   IP: "); Serial.println(WiFi.softAPIP());
-    Serial.println("==================================\n");
-
-    // Route : Page d'accueil
-    server.on("/", HTTP_GET, [](AsyncWebServerRequest *r){
-        r->send(200, "text/html", index_html);
-    });
-
-    // Route : API de données JSON
+    // ROUTES SERVEUR
+    server.on("/", HTTP_GET, [](AsyncWebServerRequest *r){ r->send(200, "text/html", index_html); });
+    
     server.on("/data", HTTP_GET, [](AsyncWebServerRequest *r){
         StaticJsonDocument<1200> doc;
         JsonArray a = doc.createNestedArray("analog");
         JsonArray rs = doc.createNestedArray("relays");
-        JsonArray ns = doc.createNestedArray("names");
-        for(int i=0; i<10; i++) {
-            a.add(getV(i));
-            ns.add(settings.inputNames[i]);
-        }
-        for(int i=0; i<8; i++) rs.add(settings.relayStates[i]);
-        String response;
-        serializeJson(doc, response);
-        r->send(200, "application/json", response);
+        for(int i=0; i<10; i++) a.add(state.voltages[i]);
+        for(int i=0; i<8; i++) rs.add(state.relayStates[i]);
+        doc["cpu"] = temperatureRead();
+        String b; serializeJson(doc, b); r->send(200, "application/json", b);
     });
 
-    // Route : Diagnostic simulé
-    server.on("/scan", HTTP_GET, [](AsyncWebServerRequest *r){
-        StaticJsonDocument<200> doc;
-        doc["cpu_temp"] = 42.5; // Valeur fixe pour simu
-        doc["wifi_rssi"] = WiFi.RSSI();
-        doc["sd_status"] = "SIMULATED";
-        String b; serializeJson(doc, b);
-        r->send(200, "application/json", b);
-    });
-
-    // Route : Lire le script actuel
     server.on("/script.txt", HTTP_GET, [](AsyncWebServerRequest *r){
-        r->send(200, "text/plain", virtualScript);
+        r->send(200, "text/plain", state.currentScript);
     });
 
-    // Route : Upload vers la RAM
-    server.on("/upload", HTTP_POST, [](AsyncWebServerRequest *r){ 
-        r->send(200, "text/plain", "OK"); 
-    }, [](AsyncWebServerRequest *r, String fn, size_t index, uint8_t *data, size_t len, bool final){
-        if(!index) virtualScript = ""; 
-        for(size_t j=0; j<len; j++) virtualScript += (char)data[j];
+    server.on("/upload", HTTP_POST, [](AsyncWebServerRequest *r){ r->send(200); }, 
+        [](AsyncWebServerRequest *r, String fn, size_t i, uint8_t *d, size_t len, bool f){
+            if(!i) state.currentScript = ""; 
+            for(size_t j=0; j<len; j++) state.currentScript += (char)d[j];
+    });
+
+    server.on("/reboot", HTTP_GET, [](AsyncWebServerRequest *request){
+        request->send(200, "text/plain", "Rebooting...");
+        delay(500);
+        ESP.restart();
     });
 
     server.begin();
+    Serial.println("Serveur Web Professionnel lancé.");
 }
 
 void loop() {
-    static unsigned long lastExec = 0;
-    updateSimulatedData();  // Update voltages
-    if(millis() - lastExec > 500) {
-        lastExec = millis();
-        runRAMScript();
+    static unsigned long lastTick = 0;
+    if(millis() - lastTick > 500) {
+        lastTick = millis();
+        updateSimulatedData();
+        runRuntimeEngine();
     }
 }
