@@ -171,6 +171,9 @@ void setup() {
     });
 }
 
+// Forward declaration of logData function
+void logData();
+
 void loop() {
     unsigned long currentMillis = millis();
 
@@ -192,10 +195,6 @@ void loop() {
         digitalWrite(STATUS_LED, LOW);
     }
 }
-
-// Variable pour l'intervalle de log (en ms) - ex: 60000 pour 1 minute
-unsigned long logInterval = 60000; 
-unsigned long lastLogTime = 0;
 
 void logData() {
     // On ouvre le fichier en mode "APPEND" (ajout à la fin)
