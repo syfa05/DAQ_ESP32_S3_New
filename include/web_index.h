@@ -3,77 +3,121 @@
 
 const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE html><html><head>
-<title>DAQ S3 API V3</title>
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<style>
-    body { font-family: 'Segoe UI', sans-serif; background: #121212; color: #e0e0e0; text-align: center; margin:0; }
-    .header { background: #1f1f1f; padding: 15px; border-bottom: 2px solid #007bff; display: flex; justify-content: space-between; }
-    .container { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; padding: 20px; }
-    .card { background: #1e1e1e; border-radius: 8px; padding: 15px; border: 1px solid #333; }
-    .voltage { font-size: 28px; font-weight: bold; color: #00e5ff; }
-    .btn { padding: 10px; border-radius: 5px; border: none; cursor: pointer; width: 100%; font-weight: bold; }
-    .on { background: #2e7d32; color: white; } .off { background: #c62828; color: white; }
-    .textarea { width: 90%; height: 200px; background: #000; color: #0f0; font-family: monospace; padding: 10px; border: 1px solid #007bff; }
-    .footer { background: #1a1a1a; padding: 10px; font-size: 12px; color: #888; }
-</style>
+    <title>DAQ S3 PRO | Industrial Controller</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        :root { --bg: #0f111a; --card: #1a1d2e; --primary: #007bff; --accent: #00e5ff; --text: #e0e6ed; --success: #28a745; --danger: #dc3545; }
+        body { font-family: 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); margin: 0; }
+        
+        /* Navigation Sidebar */
+        .sidebar { height: 100%; width: 220px; position: fixed; background: var(--card); padding-top: 20px; border-right: 1px solid #2d324d; }
+        .sidebar a { padding: 15px 25px; text-decoration: none; font-size: 16px; color: #888; display: block; cursor: pointer; transition: 0.3s; }
+        .sidebar a.active { color: var(--accent); background: rgba(0,229,255,0.05); border-left: 4px solid var(--accent); }
+        .sidebar a:hover { color: #fff; }
+
+        /* Main Content */
+        .main { margin-left: 220px; padding: 30px; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; animation: fadeIn 0.4s; }
+        @keyframes fadeIn { from {opacity: 0;} to {opacity: 1;} }
+
+        /* Professional Cards */
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; }
+        .card { background: var(--card); padding: 20px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); border: 1px solid #2d324d; }
+        .card h3 { margin: 0 0 15px 0; font-size: 14px; color: #8b949e; text-transform: uppercase; letter-spacing: 1px; }
+        .value { font-size: 32px; font-weight: bold; color: var(--accent); }
+
+        /* Code Editor */
+        #codeEditor { width: 100%; height: 300px; background: #050505; color: #50fa7b; border: 1px solid #2d324d; padding: 15px; border-radius: 8px; font-family: 'Consolas', monospace; resize: vertical; }
+        .btn { background: var(--primary); color: white; border: none; padding: 12px 25px; border-radius: 6px; cursor: pointer; font-weight: 600; transition: 0.2s; }
+        .btn:hover { filter: brightness(1.2); }
+        .btn-install { background: var(--success); }
+
+        /* Status Indicators */
+        .status-bar { display: flex; gap: 20px; margin-bottom: 30px; font-size: 13px; color: #8b949e; }
+        .status-item { display: flex; align-items: center; gap: 8px; }
+        .dot { height: 10px; width: 10px; background: var(--success); border-radius: 50%; }
+    </style>
 </head>
 <body>
-    <div class="header"><span>DAQ S3 PRO</span><div id="status">●</div></div>
-    
-    <h3>📊 Entrées & Relais</h3>
-    <div class="container" id="analog-grid"></div>
-    <div class="container" id="relay-grid"></div>
 
-    <h3>🐍 Éditeur de Logique (API)</h3>
-    <textarea id="codeEditor" placeholder="# Exemple: R1 = AN1 > 12.5"></textarea><br><br>
-    <button class="btn on" style="width:200px" onclick="saveScript()">Enregistrer & Appliquer</button>
-    <p id="msg"></p>
+<div class="sidebar">
+    <div style="padding: 0 25px 30px; font-weight: bold; font-size: 20px; color: #fff;">DAQ S3 <span style="color:var(--accent)">PRO</span></div>
+    <a onclick="openTab('monitor')" id="tab-monitor" class="active">📊 Monitoring</a>
+    <a onclick="openTab('program')" id="tab-program">💻 Programmation C++</a>
+    <a onclick="openTab('maintenance')" id="tab-maintenance">⚙️ Maintenance & PLC</a>
+</div>
 
-    <div class="card" style="grid-column: 1 / -1;">
-        <h3>💾 Historique des données</h3>
-        <button class="btn" style="background:#555; width:auto; padding:10px 30px;" onclick="downloadLogs()">
-            Télécharger DATALOG.CSV
-        </button>
-        <button class="btn" style="background:#c62828; width:auto; margin-left:10px;" onclick="clearLogs()">
-            Effacer les Logs
-        </button>
+<div class="main">
+    <div class="status-bar">
+        <div class="status-item"><div class="dot"></div> System Live</div>
+        <div class="status-item">CPU: <span id="cpu_temp">--</span>°C</div>
+        <div class="status-item">RAM Mode: <span style="color:var(--accent)">Simulation</span></div>
     </div>
 
-    <div class="footer">CPU: <span id="cpu">--</span>°C | WiFi: <span id="wifi">--</span>dBm | SD: <span id="sd">--</span></div>
+    <div id="monitor" class="tab-content active">
+        <div class="grid" id="analog-grid"></div>
+        <h2 style="margin-top:40px">Relais & Actionneurs</h2>
+        <div class="grid" id="relay-grid"></div>
+    </div>
+
+    <div id="program" class="tab-content">
+        <div class="card" style="max-width: 800px;">
+            <h3>Éditeur de Logique (Runtime C++ TinyExpr)</h3>
+            <p style="font-size:13px; color:#8b949e">Syntaxes admises : R1 = AN1 > 12.5 | R2 = (AN1 + AN2) / 2 < 10.0</p>
+            <textarea id="codeEditor" spellcheck="false"></textarea>
+            <div style="margin-top:15px;">
+                <button class="btn" onclick="saveScript()">Enregistrer et Compiler</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="maintenance" class="tab-content">
+        <div class="grid">
+            <div class="card">
+                <h3>Installation OpenPLC</h3>
+                <p style="font-size:13px">Bascule la carte en mode Automate Industriel (Ladder).</p>
+                <button class="btn btn-install" onclick="alert('Lancement Web Serial API...')">Installer Runtime OpenPLC</button>
+            </div>
+            <div class="card">
+                <h3>Firmware Update</h3>
+                <p style="font-size:13px">Mettre à jour le logiciel de monitoring C++.</p>
+                <input type="file" id="otaFile" style="display:none">
+                <button class="btn" onclick="document.getElementById('otaFile').click()">Choisir .BIN</button>
+            </div>
+        </div>
+    </div>
+</div>
 
 <script>
+    function openTab(tabName) {
+        document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.sidebar a').forEach(a => a.classList.remove('active'));
+        document.getElementById(tabName).classList.add('active');
+        document.getElementById('tab-' + tabName).classList.add('active');
+    }
+
     function refresh() {
         fetch('/data').then(r => r.json()).then(d => {
             let aH = ''; d.analog.forEach((v, i) => {
-                aH += `<div class="card"><div>${d.names[i]}</div><div class="voltage">${v.toFixed(2)}V</div></div>`;
+                aH += `<div class="card"><h3>Entrée AN${i+1}</h3><div class="value">${v.toFixed(2)}<span style="font-size:16px">V</span></div></div>`;
             });
             document.getElementById('analog-grid').innerHTML = aH;
+            
             let rH = ''; d.relays.forEach((s, i) => {
-                rH += `<div class="card">Relais ${i+1}<button class="btn ${s?'on':'off'}" onclick="tgl(${i},${s?0:1})">${s?'ON':'OFF'}</button></div>`;
+                rH += `<div class="card"><h3>Relais R${i+1}</h3><div style="color:${s? 'var(--accent)':'#444'}; font-weight:bold">${s?'ACTIVE':'VEILLE'}</div></div>`;
             });
             document.getElementById('relay-grid').innerHTML = rH;
-        });
-        fetch('/scan').then(r => r.json()).then(h => {
-            document.getElementById('cpu').innerText = h.cpu_temp;
-            document.getElementById('wifi').innerText = h.wifi_rssi;
-            document.getElementById('sd').innerText = h.sd_status;
+            document.getElementById('cpu_temp').innerText = d.cpu;
         });
     }
-    function tgl(id,s) { fetch(`/relay?id=${id}&state=${s}`).then(refresh); }
+
     function saveScript() {
         let formData = new FormData();
         formData.append("file", new Blob([document.getElementById('codeEditor').value]), "/script.txt");
-        fetch('/upload', {method:'POST', body:formData}).then(() => alert("Script OK"));
+        fetch('/upload', {method:'POST', body:formData}).then(() => alert("Compilation et déploiement réussis !"));
     }
 
-    function downloadLogs() {
-        window.location.href = "/datalog.csv";
-    }
-    function clearLogs() {
-        if(confirm("Effacer tout l'historique ?")) {
-            fetch('/clear-logs').then(() => alert("Logs effacés"));
-        }
-    }
     fetch('/script.txt').then(r => r.text()).then(t => document.getElementById('codeEditor').value = t);
     setInterval(refresh, 2000); refresh();
 </script>

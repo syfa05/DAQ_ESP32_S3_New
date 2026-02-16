@@ -6,59 +6,65 @@
 #include "web_index.h"
 #include "tinyexpr.h"
 
-// --- VARIABLES DE SIMULATION ---
-struct Settings {
+// --- CONFIGURATION ---
+struct SystemState {
     bool relayStates[8];
-    char inputNames[10][20];
+    float voltages[10];
+    String currentScript;
+} state;
+
+struct Settings {
+    char inputNames[10][32];
+    bool relayStates[8];
 } settings;
+
+String virtualScript = "";
 
 AsyncWebServer server(80);
 
-// Le script est stocké ici au lieu de la carte SD pour le test nu
-String virtualScript = "R1 = AN1 > 15.0\nR2 = AN2 < 11.5\nR3 = AN1 + AN2 > 25.0"; 
-
-// --- SIMULATION DES TENSIONS (Génération de courbes sinusoïdales) ---
-float getV(int ch) {
-    // Crée une variation fluide entre 10V et 20V pour le dashboard
-    return 15.0 + 5.0 * sin(millis() / (2000.0 + (ch * 500)));
+// --- SIMULATION DES DONNÉES ---
+void updateSimulatedData() {
+    for(int i=0; i<10; i++) {
+        state.voltages[i] = 12.0 + 8.0 * sin(millis() / (3000.0 + (i*400)));
+    }
 }
 
-// --- MOTEUR LOGIQUE EN RAM ---
-void runRAMScript() {
-    double v[10]; 
-    for(int i = 0; i < 10; i++) v[i] = getV(i);
+// Helper function to get voltage value
+float getV(int index) {
+    if(index >= 0 && index < 10) return state.voltages[index];
+    return 0.0;
+}
 
-    // Dictionnaire de variables pour TinyExpr
+// --- MOTEUR DE PROGRAMMATION C++ (TinyExpr) ---
+void runRAMScript() {
+    if (virtualScript.length() == 0) return;
+    
+    double v[10]; 
+    for(int i=0; i<10; i++) v[i] = state.voltages[i];
+
     te_variable vars[] = { 
         {"AN1",&v[0]}, {"AN2",&v[1]}, {"AN3",&v[2]}, {"AN4",&v[3]}, {"AN5",&v[4]},
         {"AN6",&v[5]}, {"AN7",&v[6]}, {"AN8",&v[7]}, {"AN9",&v[8]}, {"AN10",&v[9]}
     };
 
-    // Analyse du script ligne par ligne depuis la String RAM
+    // Parsing du script ligne par ligne
     int start = 0;
     int end = virtualScript.indexOf('\n');
-    
     while (start < virtualScript.length()) {
         String line = (end == -1) ? virtualScript.substring(start) : virtualScript.substring(start, end);
         line.trim();
 
         if(line.indexOf('=') != -1 && !line.startsWith("#")){
             String target = line.substring(0, line.indexOf('='));
-            String exprS = line.substring(line.indexOf('=') + 1);
-            
-            target.trim();
-            exprS.trim();
+            String expr = line.substring(line.indexOf('=')+1);
+            target.trim(); expr.trim();
 
             int err;
-            te_expr *e = te_compile(exprS.c_str(), vars, 10, &err);
-            
+            te_expr *e = te_compile(expr.c_str(), vars, 10, &err);
             if(e){
                 double res = te_eval(e);
-                // Extraction de l'index (ex: "R1" -> index 0)
                 int rIdx = target.substring(1).toInt() - 1;
-                if(rIdx >= 0 && rIdx < 8) {
-                    settings.relayStates[rIdx] = (res > 0.5);
-                }
+                if(rIdx >= 0 && rIdx < 8) state.relayStates[rIdx] = (res > 0.5);
                 te_free(e);
             }
         }
@@ -132,6 +138,7 @@ void setup() {
 
 void loop() {
     static unsigned long lastExec = 0;
+    updateSimulatedData();  // Update voltages
     if(millis() - lastExec > 500) {
         lastExec = millis();
         runRAMScript();
