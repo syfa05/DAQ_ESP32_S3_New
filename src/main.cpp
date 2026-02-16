@@ -2,149 +2,138 @@
 #include <WiFi.h>
 #include <ESPAsyncWebServer.h>
 #include <ArduinoJson.h>
-#include <Wire.h>
 #include "pins.h"
 #include "web_index.h"
+#include "tinyexpr.h"
 
+// --- VARIABLES DE SIMULATION ---
 struct Settings {
     bool relayStates[8];
     char inputNames[10][20];
-    float alertThresholds[10];
 } settings;
 
 AsyncWebServer server(80);
 
-// --- FONCTIONS I2C NATIVES POUR AT24C32 ---
+// Le script est stocké ici au lieu de la carte SD pour le test nu
+String virtualScript = "R1 = AN1 > 15.0\nR2 = AN2 < 11.5\nR3 = AN1 + AN2 > 25.0"; 
 
-void writeEEPROM(uint16_t address, uint8_t data) {
-    Wire.beginTransmission(EEPROM_ADDR);
-    Wire.write((uint8_t)(address >> 8));   // MSB
-    Wire.write((uint8_t)(address & 0xFF)); // LSB
-    Wire.write(data);
-    Wire.endTransmission();
-    delay(5); // Temps d'écriture obligatoire pour AT24C32
+// --- SIMULATION DES TENSIONS (Génération de courbes sinusoïdales) ---
+float getV(int ch) {
+    // Crée une variation fluide entre 10V et 20V pour le dashboard
+    return 15.0 + 5.0 * sin(millis() / (2000.0 + (ch * 500)));
 }
 
-uint8_t readEEPROM(uint16_t address) {
-    uint8_t data = 0xFF;
-    Wire.beginTransmission(EEPROM_ADDR);
-    Wire.write((uint8_t)(address >> 8));
-    Wire.write((uint8_t)(address & 0xFF));
-    Wire.endTransmission();
-    Wire.requestFrom(EEPROM_ADDR, (uint8_t)1);
-    if (Wire.available()) data = Wire.read();
-    return data;
-}
+// --- MOTEUR LOGIQUE EN RAM ---
+void runRAMScript() {
+    double v[10]; 
+    for(int i = 0; i < 10; i++) v[i] = getV(i);
 
-void saveSettings() {
-    uint8_t* p = (uint8_t*)&settings;
-    for (uint16_t i = 0; i < sizeof(settings); i++) {
-        writeEEPROM(i, *p++);
-    }
-    Serial.println("Sauvegarde EEPROM OK");
-}
+    // Dictionnaire de variables pour TinyExpr
+    te_variable vars[] = { 
+        {"AN1",&v[0]}, {"AN2",&v[1]}, {"AN3",&v[2]}, {"AN4",&v[3]}, {"AN5",&v[4]},
+        {"AN6",&v[5]}, {"AN7",&v[6]}, {"AN8",&v[7]}, {"AN9",&v[8]}, {"AN10",&v[9]}
+    };
 
-void loadSettings() {
-    uint8_t* p = (uint8_t*)&settings;
-    for (uint16_t i = 0; i < sizeof(settings); i++) {
-        *p++ = readEEPROM(i);
-    }
+    // Analyse du script ligne par ligne depuis la String RAM
+    int start = 0;
+    int end = virtualScript.indexOf('\n');
     
-    // Initialisation si vierge
-    if (settings.inputNames[0][0] == 0 || (uint8_t)settings.inputNames[0][0] == 255) {
-        Serial.println("Initialisation par defaut...");
-        for(int i=0; i<8; i++) settings.relayStates[i] = false;
-        for(int i=0; i<10; i++) {
-            sprintf(settings.inputNames[i], "Entree %d", i+1);
-            settings.alertThresholds[i] = 26.0;
+    while (start < virtualScript.length()) {
+        String line = (end == -1) ? virtualScript.substring(start) : virtualScript.substring(start, end);
+        line.trim();
+
+        if(line.indexOf('=') != -1 && !line.startsWith("#")){
+            String target = line.substring(0, line.indexOf('='));
+            String exprS = line.substring(line.indexOf('=') + 1);
+            
+            target.trim();
+            exprS.trim();
+
+            int err;
+            te_expr *e = te_compile(exprS.c_str(), vars, 10, &err);
+            
+            if(e){
+                double res = te_eval(e);
+                // Extraction de l'index (ex: "R1" -> index 0)
+                int rIdx = target.substring(1).toInt() - 1;
+                if(rIdx >= 0 && rIdx < 8) {
+                    settings.relayStates[rIdx] = (res > 0.5);
+                }
+                te_free(e);
+            }
         }
-        saveSettings();
+        if (end == -1) break;
+        start = end + 1;
+        end = virtualScript.indexOf('\n', start);
     }
-}
-
-// --- RESTE DU CODE ---
-
-float getVoltage(int ch) {
-    long sum = 0;
-    for(int i=0; i<64; i++) sum += analogRead(ANALOG_PINS[ch]);
-    return ((float)sum / 64.0 * 3.3 / 4095.0) * ((68000.0 + 33000.0) / 33000.0);
 }
 
 void setup() {
     Serial.begin(115200);
-    Wire.begin(I2C_SDA, I2C_SCL); // IO47, IO48
-    
-    loadSettings();
+    delay(1000);
 
-    pinMode(BUZZER_PIN, OUTPUT);
-    digitalWrite(BUZZER_PIN, LOW);
-    analogReadResolution(12);
+    // Initialisation des noms fictifs pour le test
+    for(int i=0; i<10; i++) sprintf(settings.inputNames[i], "Simu-Ch %d", i+1);
+    for(int i=0; i<8; i++) settings.relayStates[i] = false;
 
-    for(int i=0; i<NUM_RELAYS; i++) {
-        pinMode(RELAY_PINS[i], OUTPUT);
-        digitalWrite(RELAY_PINS[i], settings.relayStates[i]);
-    }
+    // WiFi en mode Point d'Accès
+    WiFi.softAP("DAQ-S3-SIMU", "12345678");
+    Serial.println("\n==================================");
+    Serial.println("   DAQ S3 - MODE SIMULATION OK   ");
+    Serial.print("   IP: "); Serial.println(WiFi.softAPIP());
+    Serial.println("==================================\n");
 
-    WiFi.softAP("DAQ-ESP32-PRO", "12345678");
+    // Route : Page d'accueil
+    server.on("/", HTTP_GET, [](AsyncWebServerRequest *r){
+        r->send(200, "text/html", index_html);
+    });
 
-    server.on("/", HTTP_GET, [](AsyncWebServerRequest *r){ r->send(200, "text/html", index_html); });
-
+    // Route : API de données JSON
     server.on("/data", HTTP_GET, [](AsyncWebServerRequest *r){
-        StaticJsonDocument<1500> doc;
+        StaticJsonDocument<1200> doc;
         JsonArray a = doc.createNestedArray("analog");
-        JsonArray n = doc.createNestedArray("names");
-        JsonArray t = doc.createNestedArray("thresholds");
         JsonArray rs = doc.createNestedArray("relays");
+        JsonArray ns = doc.createNestedArray("names");
         for(int i=0; i<10; i++) {
-            a.add(getVoltage(i));
-            n.add(settings.inputNames[i]);
-            t.add(settings.alertThresholds[i]);
+            a.add(getV(i));
+            ns.add(settings.inputNames[i]);
         }
         for(int i=0; i<8; i++) rs.add(settings.relayStates[i]);
-        String response; serializeJson(doc, response);
+        String response;
+        serializeJson(doc, response);
         r->send(200, "application/json", response);
     });
 
-    server.on("/relay", HTTP_GET, [](AsyncWebServerRequest *r){
-        if(r->hasParam("id") && r->hasParam("state")) {
-            int id = r->getParam("id")->value().toInt();
-            int s = r->getParam("state")->value().toInt();
-            digitalWrite(RELAY_PINS[id], s);
-            settings.relayStates[id] = (s == 1);
-            saveSettings();
-        }
-        r->send(200, "text/plain", "OK");
+    // Route : Diagnostic simulé
+    server.on("/scan", HTTP_GET, [](AsyncWebServerRequest *r){
+        StaticJsonDocument<200> doc;
+        doc["cpu_temp"] = 42.5; // Valeur fixe pour simu
+        doc["wifi_rssi"] = WiFi.RSSI();
+        doc["sd_status"] = "SIMULATED";
+        String b; serializeJson(doc, b);
+        r->send(200, "application/json", b);
     });
 
-    server.on("/rename", HTTP_GET, [](AsyncWebServerRequest *r){
-        if(r->hasParam("id") && r->hasParam("name")) {
-            int id = r->getParam("id")->value().toInt();
-            strncpy(settings.inputNames[id], r->getParam("name")->value().c_str(), 19);
-            saveSettings();
-        }
-        r->send(200, "text/plain", "OK");
+    // Route : Lire le script actuel
+    server.on("/script.txt", HTTP_GET, [](AsyncWebServerRequest *r){
+        r->send(200, "text/plain", virtualScript);
     });
 
-    server.on("/limit", HTTP_GET, [](AsyncWebServerRequest *r){
-        if(r->hasParam("id") && r->hasParam("val")) {
-            int id = r->getParam("id")->value().toInt();
-            settings.alertThresholds[id] = r->getParam("val")->value().toFloat();
-            saveSettings();
-        }
-        r->send(200, "text/plain", "OK");
+    // Route : Upload vers la RAM
+    server.on("/upload", HTTP_POST, [](AsyncWebServerRequest *r){ 
+        r->send(200, "text/plain", "OK"); 
+    }, [](AsyncWebServerRequest *r, String fn, size_t index, uint8_t *data, size_t len, bool final){
+        if(!index) virtualScript = ""; 
+        for(size_t j=0; j<len; j++) virtualScript += (char)data[j];
     });
 
     server.begin();
 }
 
 void loop() {
-    static unsigned long lastCheck = 0;
-    if (millis() - lastCheck > 1500) {
-        lastCheck = millis();
-        bool alarm = false;
-        for(int i=0; i<10; i++) {
-            if(settings.alertThresholds[i] > 0 && getVoltage(i) > settings.alertThresholds[i]) alarm = true;
-        }
-        if(alarm) { digitalWrite(BUZZER_PIN, HIGH); delay(100); digitalWrite(BUZZER_PIN, LOW); }
+    static unsigned long lastExec = 0;
+    if(millis() - lastExec > 500) {
+        lastExec = millis();
+        runRAMScript();
     }
 }
