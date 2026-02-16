@@ -22,7 +22,7 @@
  * misrepresented as being the original software.
  * 3. This notice may not be removed or altered from any source distribution.
  */
-
+/*
 #ifndef TINYEXPR_H
 #define TINYEXPR_H
 
@@ -59,29 +59,56 @@ typedef struct te_variable {
     void *context;
 } te_variable;
 
-
+*/
 
 /* Parses the input expression, evaluates it, and frees it. */
 /* Returns NaN on error. */
-double te_interp(const char *expression, int *error);
+
+//double te_interp(const char *expression, int *error);
 
 /* Parses the input expression and binds variables. */
 /* Returns NULL on error. */
-te_expr *te_compile(const char *expression, const te_variable *variables, int var_count, int *error);
+//te_expr *te_compile(const char *expression, const te_variable *variables, int var_count, int *error);
 
 /* Evaluates the expression. */
-double te_eval(const te_expr *n);
+//double te_eval(const te_expr *n);
 
 /* Prints debugging information on the syntax tree. */
-void te_print(const te_expr *n);
+//void te_print(const te_expr *n);
 
 /* Frees the expression. */
 /* This is safe to call on NULL pointers. */
-void te_free(te_expr *n);
-
+//void te_free(te_expr *n);
+/*
 
 #ifdef __cplusplus
 }
 #endif
 
 #endif /*TINYEXPR_H*/
+
+#ifndef TINYEXPR_H
+#define TINYEXPR_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+typedef struct te_expr te_expr;
+
+typedef struct {
+    const char *name;
+    const void *address;
+    int type;
+    void *context;
+} te_variable;
+
+te_expr *te_compile(const char *expression, const te_variable *variables, int var_count, int *error);
+double te_eval(const te_expr *n);
+void te_free(te_expr *n);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif
