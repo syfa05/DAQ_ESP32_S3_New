@@ -68,8 +68,8 @@ void setup() {
     Serial.begin(115200);
     delay(1000);
     
-    // Initialize HAL
-    initHAL();
+    // Initialize HAL - DISABLED for ESP32 compatibility
+    // initHAL();  // TODO: Configure correct GPIO for ESP32
     
     // Initialize DAQ settings
     daq.script = "R1 = AN1 > 15.0\nR2 = AN2 < 11.0";
@@ -83,7 +83,10 @@ void setup() {
     Serial.println("==================================\n");
 
     // ROUTES SERVEUR
-    server.on("/", HTTP_GET, [](AsyncWebServerRequest *r){ r->send(200, "text/html", index_html); });
+    server.on("/", HTTP_GET, [](AsyncWebServerRequest *r){
+        AsyncWebServerResponse *response = r->beginResponse(200, "text/html; charset=utf-8", index_html);
+        r->send(response);
+    });
     
     server.on("/data", HTTP_GET, [](AsyncWebServerRequest *r){
         StaticJsonDocument<1200> doc;
@@ -122,7 +125,7 @@ void loop() {
     if(millis() - lastTick > 500) {
         lastTick = millis();
         updateSensors();
-        updateHAL();
+        // updateHAL();  // DISABLED for ESP32 compatibility
         runLogic();
     }
 }
